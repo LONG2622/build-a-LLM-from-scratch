@@ -423,7 +423,7 @@ torch.set_printoptions(sci_mode= False)
 class Layernorm(nn.Module):
     def __init__(self,emb_dim):
         super().__init__()
-        self.eps = 1e-5(防止分母0出现)
+        self.eps = 1e-5#(防止分母0出现)
         self.scale = nn.Parameter(torch.ones(emb_dim))
         self.shift = nn.Parameter(torch.zeros(emb_dim))
 
@@ -577,7 +577,7 @@ class GPTModel(nn.Module):
             *[TransformerBlock(cfg)
               for _ in range(cfg["n_layers"])]
         )
-        self.final_norm = LayerNorm(cfg["emb_dim"])
+        self.final_norm = Layernorm(cfg["emb_dim"])
         self.out_head = nn.Linear(
             cfg["emb_dim"] , cfg["vocab_size"] , 
                                  bias =False
@@ -660,3 +660,330 @@ out = generate_text_simple(
     max_new_tokens = 6 ,
     context_size = GPT_CONFIG_124M["context_length"])
 #准备训练模型
+print(out)
+print(len(out[0]))
+decode_text =  tokenizer.decode(out.squeeze(0).tolist())
+print(decode_text)
+#6.1
+#开始预训练
+import torch
+GPT_CONFIG_124M = {
+    "vocab_size": 50257,
+    "context_length": 256,
+    "emb_dim" :768,
+    "n_heads": 12,
+    "n_layers":12,
+    "drop_rate":0.1,
+    "qkv_bias" : False
+}
+torch.manual_seed(123)
+model = (GPTModel(GPT_CONFIG_124M))
+model.eval()
+
+import tiktoken
+def text_to_token_ids(text , tokenizer):
+    encoded = tokenizer.encode(text , allowed_special = {'<|endoftext|>'})
+    encoded_tensor = torch.tensor(encoded).unsqueeze(0)
+    return encoded_tensor
+
+def token_ids_to_text(token_ids, tokenizer) :
+    flat = token_ids.squeeze(0)
+    return tokenizer.decode(flat.tolist())
+
+start_context = "Every effort moves you"
+tokenizer = tiktoken.get_encoding("gpt2")
+
+token_ids = generate_text_simple(
+    model = model,
+    idx = text_to_token_ids(start_context, tokenizer) ,
+    max_new_tokens=10, 
+    context_size=GPT_CONFIG_124M["context_length"]
+)
+
+print(token_ids_to_text(token_ids , tokenizer))
+
+inputs = torch.tensor([[16833, 3626, 6100],
+                       [40,  1107,588   ]])
+#every effot moves
+#i really like
+targets= torch.tensor([[3626, 6100 , 345],
+                       [1107, 288, 11311]])
+
+with torch.no_grad():
+    logits = model(inputs)
+probas =torch.softmax(logits, dim = -1)
+print(probas.shape)
+
+#计算文本生成损失(交叉熵损失 )
+
+token_ids = torch.argmax(probas, dim = -1, keepdim = True)
+print(token_ids)
+print(token_ids_to_text(targets[0], tokenizer))
+print(token_ids_to_text(token_ids[0].flatten(), tokenizer))
+
+text_idx =0
+target_probas_1 = probas[text_idx,[0, 1, 2],targets[text_idx]]
+print(target_probas_1)
+
+text_idx = 1
+target_probas_2 = probas[text_idx,[0, 1, 2],targets[text_idx]]
+print(target_probas_2)
+
+log_probas = torch.log(torch.cat((target_probas_1, target_probas_2)))
+print(log_probas)
+
+#交叉熵损失函数cross_entropy
+logits_flat = logits.flatten(0, 1)
+targets_flat = targets.flatten()
+print(logits_flat.shape)
+print(targets_flat.shape)
+
+loss = torch.nn.functional.cross_entropy(logits_flat , targets_flat)
+print(loss)
+#计算训练集和测试集的损失
+file_path = r"C:\Users\田建隆\Downloads\LLMs-from-scratch-main\the-verdict.txt"
+with open(file_path, "r", encoding = "utf-8") as file:
+    text_data= file.read()
+total_characters = len(text_data)
+total_tokens = len(tokenizer.encode(text_data))
+print(total_characters)
+print(total_tokens)
+
+
+ #完整dataloader函数
+
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+class GPTDatasetV1(Dataset):
+    def __init__(self, txt, tokenizer, max_length, stride):
+        self.tokenizer = tokenizer
+        self.input_ids = []
+        self.target_ids = []
+
+        token_ids = tokenizer.encode(txt)
+
+        for i in range(0, len(token_ids) - max_length, stride):
+            input_chunk = token_ids[i:i + max_length]
+            target_chunk = token_ids[i + 1: i + max_length + 1]
+            self.input_ids.append(torch.tensor(input_chunk))
+            self.target_ids.append(torch.tensor(target_chunk))
+
+    def __len__(self):
+        return len(self.input_ids)
+
+    def __getitem__(self, idx):
+        return self.input_ids[idx], self.target_ids[idx]
+
+def create_dataloader_v1(txt, tokenizer, batch_size=4, max_length=256,
+                         stride=128, drop_last=True, shuffle=True, num_workers=0):
+
+    dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        drop_last=drop_last
+    )
+    return dataloader
+    #完整dataloader函数
+def create_dataloader_v1(txt , batch= 4 ,max_length = 256,stride = 128, shuffle = True, drop_last = True, num_workers = 0):
+    tokenizer = tiktoken.get_enoding("gpt2")
+    dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
+    dataloader = Dataloader(
+        dataset, 
+        batch_size = batch_size,
+        shuffle = shuffle,
+        drop_last = drop_last ,
+        num_workers = num_workers
+    )
+    return dataloader
+#使用90%的数据训练
+train_ratio= 0.90
+split_idx = int(train_ratio* len(text_data))
+train_data = text_data[:split_idx]
+val_data =text_data[split_idx:]
+#创建相应的数据加载器
+train_loader = create_dataloader_v1(
+    train_data,
+    tokenizer = tokenizer,
+    batch_size = 2,
+    max_length = GPT_CONFIG_124M["context_length"],
+    stride = GPT_CONFIG_124M["context_length"],
+    drop_last= False,
+    shuffle= False,
+    num_workers = 0
+)
+val_loader = create_dataloader_v1(
+    val_data,
+    batch_size = 2,
+    tokenizer = tokenizer,
+    max_length = GPT_CONFIG_124M["context_length"],
+    stride = GPT_CONFIG_124M["context_length"],
+    drop_last = False,
+    shuffle = False,
+    num_workers = 0
+)
+for x, y in train_loader:
+    print(x.shape, y.shape)
+
+for x, y in val_loader:
+    print(x.shape, y.shape)
+#工具函数，用于计算返回给定批次的交叉熵损失
+def calc_loss_batch(input_batch, target_batch, model, device):
+    input_batch = input_batch.to(device)
+    logits = model(input_batch)
+    loss = torch.nn.functional.cross_entropy(
+        logits.flatten(0,1), target_batch.flatten()
+    ) 
+    return loss
+
+def calc_loss_loader(data_loader , model , device, num_batches = None):
+    total_loss= 0.
+    if len(data_loader) ==0:
+        return float("nan")
+    elif num_batches is None:
+        num_batches = len(data_loader)
+    else:
+        num_batches = min(num_batches, len(data_loader))
+    for i , (input_batch, target_batch) in  enumerate(data_loader):
+        if i < num_batches:
+            loss = calc_loss_batch(
+                input_batch, target_batch, model , device
+            )
+            total_loss += loss.item()
+        else:
+            break
+    return total_loss / num_batches
+
+device = torch.device("cpu")
+model.to(device)
+torch.manual_seed(123)
+with torch.no_grad():
+    train_loss = calc_loss_loader(train_loader, model ,device)
+    val_loss= calc_loss_loader(val_loader, model, device)
+print(train_loss)
+print(val_loss)
+#开始正式训练模型：预训练大模型的主函数
+def train_model_simple(model, train_loader, val_loader,
+                       optimizer, device, num_epochs,
+                       eval_freq, eval_iter, start_context, tokenizer):
+    train_losses, val_losses, track_tokens_seen = [], [], []
+    tokens_seen , global_step= 0 , -1
+    for epoch in  range(num_epochs):
+        model.train()
+        for input_batch, target_batch in train_loader:
+            optimizer.zero_grad()
+            loss = calc_loss_batch(
+                input_batch, target_batch , model, device
+            )
+            loss.backward()
+            optimizer.step()
+            tokens_seen += input_batch.numel()
+            global_step += 1
+
+            if global_step % eval_freq ==0:
+                train_loss, val_lloss = evaluate_model(
+                    model, train_loader, val_loader, device, eval_iter
+                )
+                train_losses.append(train_loss)
+                val_losses.append(val_loss)
+                track_tokens_seen.append(tokens_seen)
+                print({epoch+1}, {train_loss},{val_loss})
+    generate_and_print_sample(
+        model , tokenizer, device, start_context            )
+    return train_losses, val_losses, track_tokens_seen 
+def evaluate_model(model ,train_loader , val_loader, device, eval_iter):
+    model.eval()
+    with torch.no_grad():
+        train_loss = calc_loss_loader(
+            train_loader, model , device, num_batches= eval_iter
+        )
+        val_loss = calc_loss_loader(
+            val_loader, model ,device, num_batches= eval_iter 
+        )
+        model.train()
+        return train_loss, val_loss
+#便捷函数，用于跟踪模型在训练过程中是否有所改进    
+def generate(model, idx, max_new_tokens, context_size):
+    for _ in range(max_new_tokens):
+        idx_cond = idx[:, -context_size:]
+        with torch.no_grad():
+            logits = model(idx_cond)
+        logits = logits[:, -1, :]
+        probs = torch.softmax(logits, dim=-1)
+        idx_next = torch.argmax(probs, dim=-1, keepdim=True)
+        idx = torch.cat((idx, idx_next), dim=1)
+    return idx
+def generate_and_print_sample(model , tokenizer, device, start_context):
+    model.eval()
+    context_size = model.pos_emb.weight.shape[0]
+    encoded = text_to_token_ids(start_context, tokenizer).to(device)
+    with torch.no_grad():
+        token_ids = generate(
+            model  =model, idx = encoded,
+            max_new_tokens = 50, context_size = context_size
+        )
+    decoded_text = token_ids_to_text (token_ids, tokenizer)
+    print(decode_text.replace("\n"," "))
+    model.train()
+
+#用Adaw优化器进行十轮训练
+torch.manual_seed(123)
+model = GPTModel(GPT_CONFIG_124M)
+model.to(device)
+optimizer = torch.optim.AdamW(
+    model.parameters(),
+    lr = 0.0004, weight_decay = 0.1
+)
+num_epochs = 10
+train_losses, val_losses, token_seen = train_model_simple(
+    model, train_loader, val_loader, optimizer, device,
+    num_epochs=num_epochs, eval_freq= 5, eval_iter = 5,
+    start_context="Every effort moves you", tokenizer= tokenizer
+)
+#豆包
+# --------------- 1. 切分数据（完全正确版）---------------
+train_ratio = 0.90
+split_idx = int(train_ratio * len(text_data))
+
+train_data = text_data[:split_idx]
+val_data = text_data[split_idx:]  # 干净、正确、无任何空格错误
+
+# --------------- 2. 重建数据加载器 ---------------
+train_loader = create_dataloader_v1(
+    train_data,
+    tokenizer=tokenizer,
+    batch_size=2,
+    max_length=GPT_CONFIG_124M["context_length"],
+    stride=GPT_CONFIG_124M["context_length"],
+    drop_last=False,
+    shuffle=False,
+    num_workers=0
+)
+
+val_loader = create_dataloader_v1(
+    val_data,
+    tokenizer=tokenizer,
+    batch_size=2,
+    max_length=GPT_CONFIG_124M["context_length"],
+    stride=GPT_CONFIG_124M["context_length"],
+    drop_last=False,
+    shuffle=False,
+    num_workers=0
+)
+
+# --------------- 3. 重置模型 + 重新训练 ---------------
+torch.manual_seed(123)
+model = GPTModel(GPT_CONFIG_124M)
+model.to(device)
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.0004, weight_decay=0.1)
+num_epochs = 15
+
+train_losses, val_losses, token_seen = train_model_simple(
+    model, train_loader, val_loader, optimizer, device,
+    num_epochs=num_epochs, eval_freq=5, eval_iter=5,
+    start_context="Every effort moves you", tokenizer=tokenizer
+)
