@@ -183,7 +183,11 @@ class CausalAttention(nn.Module):
         self.W_key = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_value = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
         self.dropout = torch.nn.Dropout(dropout)
-        self.register_buffer("mask",torch.ones(context_length, context_length), diagonal = 1)
+        self.register_buffer(
+            "mask",
+            torch.triu(torch.ones(context_length, context_length), 
+                       diagonal = 1)
+                       )
 
     def forward(self, x):
         b , num_tokens,d_in =x.shape
@@ -201,7 +205,9 @@ class CausalAttention(nn.Module):
 torch.manual_seed(789)
 context_length = batch.shape[1]
 dropout = 0.0
-ca = CausalAttention(d_in, d_out, context_length , dropout)
+ca = CausalAttention(d_in = d_in, d_out = d_out,
+                      context_length = context_length, dropout = dropout,
+                    )
 ca(batch)
 """
 import torch
@@ -451,8 +457,8 @@ class RELU(nn.Module):
         super().__init__()
     def forward(self, x):
         return 0.5 * x * (1 + torch.tanh(
-            torch.aqrt(torch.tensor(2.0 / torch.pi)) * 
-            (x + 0.044715 * torch.pow(w, 3))
+            torch.sqrt(torch.tensor(2.0 / torch.pi)) * 
+            (x + 0.044715 * torch.pow(x , 3))
         ))
     #可视化绘制图像比较ReLU 和GELU函数
 import matplotlib.pyplot as plt
@@ -554,9 +560,16 @@ class TransformerBlock(nn.Module):
         self.norm2 = Layernorm(cfg["emb_dim"])
         self.drop_shortcut = nn.Dropout(cfg["drop_rate"])
     def forward(self,x):
+        #注意力残差
         shortcut = x
         x = self.norm1(x)
         x = self.att(x)
+        x = self.drop_shortcut(x)
+        x = x + shortcut
+#前馈网络残差
+        shortcut = x
+        x = self.norm2(x)
+        x = self.ff(x)
         x = self.drop_shortcut(x)
         x = x + shortcut
         return x 
@@ -789,9 +802,9 @@ def create_dataloader_v1(txt, tokenizer, batch_size=4, max_length=256,
     return dataloader
     #完整dataloader函数
 def create_dataloader_v1(txt , batch= 4 ,max_length = 256,stride = 128, shuffle = True, drop_last = True, num_workers = 0):
-    tokenizer = tiktoken.get_enoding("gpt2")
+    tokenizer = tiktoken.get_encoding("gpt2")
     dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
-    dataloader = Dataloader(
+    dataloader = DataLoader(
         dataset, 
         batch_size = batch_size,
         shuffle = shuffle,
@@ -811,8 +824,8 @@ train_loader = create_dataloader_v1(
     batch_size = 2,
     max_length = GPT_CONFIG_124M["context_length"],
     stride = GPT_CONFIG_124M["context_length"],
-    drop_last= False,
-    shuffle= False,
+    drop_last= True,
+    shuffle= True,
     num_workers = 0
 )
 val_loader = create_dataloader_v1(
@@ -884,7 +897,7 @@ def train_model_simple(model, train_loader, val_loader,
             global_step += 1
 
             if global_step % eval_freq ==0:
-                train_loss, val_lloss = evaluate_model(
+                train_loss, val_loss = evaluate_model(
                     model, train_loader, val_loader, device, eval_iter
                 )
                 train_losses.append(train_loss)
@@ -926,7 +939,7 @@ def generate_and_print_sample(model , tokenizer, device, start_context):
             max_new_tokens = 50, context_size = context_size
         )
     decoded_text = token_ids_to_text (token_ids, tokenizer)
-    print(decode_text.replace("\n"," "))
+    print(decoded_text.replace("\n"," "))
     model.train()
 
 #用Adaw优化器进行十轮训练
@@ -987,3 +1000,89 @@ train_losses, val_losses, token_seen = train_model_simple(
     num_epochs=num_epochs, eval_freq=5, eval_iter=5,
     start_context="Every effort moves you", tokenizer=tokenizer
 )
+
+#6.2训练集和测试集的损失可视化
+import matplotlib.pyplot as plt
+freon matplotlib.ticker import MAxNLocator
+def plot_losses(epoches_seen , tokens_seen, train_losses, val_losses)
+    fig, ax1 = plt.subplots(figsize = (5,3))
+    ax1.plot(epoches_seen, train_losses, label = "Training loss")
+    ax1.plot(
+        epochs_seen, val_losses, linestyle= "-.", label = "Validation loss"
+    )
+    ax1.set_xlabel("Epochs")
+    ax1.set_ylabel("Loss")
+    ax1.legend(loc = "upper right")
+    ax1.xaxis.set_major_locator(MAxNLocator(integer = True))
+    ax2 = ax1.twiny()
+    ax2.plot(tokens_seen,train_losses, alpha = 0 )
+    ax2.set_xlabel("Tokens seen")
+    fig.tight_layout()
+    plt.show()
+
+#6.2控制随机性的解码策略
+model.to("cpu")
+model.eval()
+tokenizer = tiktoken.get_encoding("gpt2")
+token_ids = generate_text_simple(
+    model = model, idx = text_to_token_ids("Every effort moves you", tokenizer),
+    max_new_tokens=25,
+    context_size=GPT_CONFIG_124M["context_length"]
+)
+print("output the text:\n",
+      token_ids_to_text(token_ids, tokenizer))
+#温度缩放temperature scaling
+vocab = {
+    "closer":0,
+    "every":1,
+    "effort":2,
+    "forward":3,
+    "inches":4,
+    "moves":5,
+    "pizza":6,
+    "toward":7,
+    "you":8,
+}
+inverse_vocab = {v: k for k ,v in vocab.items()}
+next_token_logits = torch.tensor(
+    [4.51,0.89,-1.90,6.75,1.63,-1.62,-1.89,6.28,1.79] 
+)
+probas = torch.softmax(next_token_logits,dim= 0)
+next_token_id = torch.argmax(probas).item()
+print(inverse_vocab[next_token_id])
+
+torch.manual_seed(123)
+next_token_id = torch.multinomial(probas, num_samples = 1).item()
+print(inverse_vocab[next_token_id])
+def print_sampled_tokens(probas):
+    torch.manual_seed(123)
+    sample = [torch.multinomial(probas, num_samples = 1).item()
+              for i in range(1_000)]
+    sampled_ids = torch.bincount(torch.tensor(sample))
+    for i, freq in enumerate(sampled_ids):
+        print(f"{freq} x {inverse_vocab[i]}")
+#温度缩放
+def softmax_with_temperature(logits, temperature):
+    scaled_logits = logits / temperature
+    return torch.softmax(scaled_logits, dim = 0)
+
+temperatures = [1, 0.1, 5]
+scaled_probas = [softmax_with_temperature(next_token_logits, T)
+                 for T in temperatures]
+x = torch.arange(len(vocab))
+bar_width = 0.15
+fig, ax = plt.subplots(figsize = (5,3))
+for  i, T in enumerate(temperatures):
+    rects = ax.bar(x+ i * bar_width , scaled_probas[i],
+                   bar_width, label = f'Temperature={T}')
+ax.set_ylabel('Probability')
+ax.set_xticks(x)
+ax.set_xticklabels(vocab.keys(), rotation = 90)
+ax.legend()
+plt.tight_layout()
+plt.show()
+#top-k采样
+top_k = 3
+top_logits, top_pos = torch.topk(next_token_logits, top_k)
+print(top_logits)
+print(top_pos)

@@ -4,9 +4,9 @@ import urllib.request
 if not os.path.exists("the-verdict.txt"):
     url = ("https:/raw.githubusercontent.com/rasbt/LLMs-from-scratch/refs/heads/main/ch02/01_main-chapter-code/the-verdict.txt")
     file_path = "the-verdict.txt"
-    urllib.request.urlretrieve(url, file_pth)
+    urllib.request.urlretrieve(url, file_path)
 
-with open("the-verdict.txt" , "r", encoding = UTF-8") as f:
+with open("the-verdict.txt" , "r", encoding = "UTF-8") as f:
     raw_text = f.read()
 raw_text
 #指令会显示verdict原文
