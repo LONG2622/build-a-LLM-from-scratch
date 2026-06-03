@@ -113,10 +113,10 @@ class SelfAttention_V1(nn.Module):
         W_key = torch.nn.Parameter(torch.rand(d_in ,d_out))
         W_value = torch.nn.Parameter(torch.rand(d_in ,d_out))
     def forward(self , x):
-        query = inputs @ W_query
-        key = inputs @ W_key
-        value = inputs @ W_value
-        attn_score_2 = query_2 @ key.T
+        queries = x @ W_query
+        keys = x @ W_key
+        values = x @ W_value
+        attn_score_2 = query_2 @ keys.T
         attn_weights =torch.softmax(attn_score_2 / d_k ** 0.5, dim = -1)
         context_vec = attn_weights @value
         return context_vec
