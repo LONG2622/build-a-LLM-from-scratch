@@ -1,6 +1,6 @@
 import os
 import urllib.request
-
+import torch
 if not os.path.exists("the-verdict.txt"):
     url = ("https:/raw.githubusercontent.com/rasbt/LLMs-from-scratch/refs/heads/main/ch02/01_main-chapter-code/the-verdict.txt")
     file_path = "the-verdict.txt"
@@ -89,10 +89,9 @@ import tiktoken
 print(version("tiktoken"))
 tokenizer = tiktoken.get_encoding("gpt2")
 text = (
-    "Hello , do you like tea?<|endoftext|> In the sunlit terraces"UnicodeEncodeError
-     "of someunknownPlace."
+    "Hello , do you like tea?<|endoftext|> In the sunlit terraces of some unknownPlace."
 )
-integers = tokenizer.encode(text, allowed_special{"<|endoftext|>"})
+integers = tokenizer.encode(text, allowed_special={"<|endoftext|>"})
 print(integers)
 #滑动窗口法数据采样
 with open("the-verdict.txt","r",encoding = "utf-8") as f:
