@@ -10,7 +10,7 @@ import tokenizer
 url = "https://archive.ics.uci.edu/static/public/228/sms+spam+collection.zip"
 zip_path = "sms_spam_collection.zip"
 extracted_path = "sms_spam_collection"
-data_file_path = Path(extracted_path) / "SMSSpamCollecion.tsv"
+data_file_path = Path(extracted_path) / "SMSSpamCollection.tsv"
 
 def download_and_unzip_spam_data(
         url, zip_path, extracted_path, data_tile_path):
@@ -33,7 +33,7 @@ df
 print(df["Label"].value_counts())
 #创建一个平衡的数据集
 def create_balanced_dataset(df):
-    num_spam = df[df["Label"]=="sapm"].shape[0]
+    num_spam = df[df["Label"]=="spam"].shape[0]
     ham_subset = df[df["Label"] == "ham"].sample(
         num_spam, random_state = 123
     )
@@ -58,6 +58,16 @@ def random_split(df, train_frac, validation_frac):
     return train_df, validation_df, test_df
 train_df, validation_df, test_df= random_split(
     balanced_df, 0.7, 0.1)
+# 把标签转为 0/1
+train_df["Label"] = train_df["Label"].map({"ham": 0, "spam": 1})
+validation_df["Label"] = validation_df["Label"].map({"ham": 0, "spam": 1})
+test_df["Label"] = test_df["Label"].map({"ham": 0, "spam": 1})
+
+# 保存成 CSV 文件，给后面的 DataLoader 使用
+train_df.to_csv("train.csv", index=False)
+validation_df.to_csv("validation.csv", index=False)
+test_df.to_csv("test.csv", index=False)
+# ==========================================================
 #创建dateloader
 import tiktoken
 tokenizer = tiktoken.get_encoding("gpt2")
@@ -95,7 +105,7 @@ class SpamDataset(Dataset):
         )
     def __len__ (self):
         return len(self.data)
-    def __longest_encoded_length(self):
+    def _longest_encoded_length(self):
         max_length = 0
         for encoded_text in self.encoded_texts:
             encoded_length = len(encoded_text)
@@ -171,7 +181,7 @@ from ch04 import GPTModel, load_weights_into_gpt
 
 model_size = CHOOSE_MODEL.split(" ")[-1].lstrip("(").rstrip(")")
 settings, params = download_and_load_gpt2(
-    model_size = model_size, model_dir= "gpt2"
+    model_size = model_size, models_dir= "gpt2"
 )
 model = GPTModel(BASE_CONFIG)
 load_weights_into_gpt(model, params)
@@ -196,7 +206,7 @@ text_2 = (
 )
 token_ids =generate_text_simple(
     model = model, 
-    idx = text_to_token_ids(text_2, tokenzier),
+    idx = text_to_token_ids(text_2, tokenizer),
     max_new_tokens=23,
     context_size= BASE_CONFIG["context_length"]
 )
@@ -215,7 +225,7 @@ model.out_head = torch.nn.Linear(
 #解冻两个模块
 for param in model.trf_blocks[-1].parameters():
     param.requires_grad = True
-for param in model.final_norm_parameters():
+for param in model.final_norm.parameters():
     param.requires_grad = True
 
 inputs = tokenizer.encode("Do you have time")
@@ -226,8 +236,6 @@ print(inputs.shape)
 with torch.no_grad():
     outputs = model(inputs)
 print(outputs)
-print(torch.size([1,4,2]))
-
 #计算分类损失和准确率
 #先实现微调中使用的模型评估函数
 #准备数据集 ---> 模型设置 ---> 模型微调
@@ -250,9 +258,7 @@ def calc_accuracy_loader(data_loader, model, device, num_batches = None):
             predicted_labels= torch.argmax(logits, dim = -1)
 
             num_examples += predicted_labels.shape[0]
-            correct_predictions += {
-                {predicted_labels == target_batch}.sum().item()
-            }
+            correct_predictions += (predicted_labels == target_batch).sum().item()
         else:
             break
     return correct_predictions / num_examples
@@ -274,7 +280,7 @@ def calc_loss_batch(input_batch, target_batch, model, device):
     input_batch = input_batch.to(device)
     target_batch = target_batch.to(device)
     logits = model(input_batch)[:, -1, :]
-    loss = torch.nn.functonal.cross_entropy(logits, target_batch)
+    loss = torch.nn.functional.cross_entropy(logits, target_batch)
     return loss
 #计算分类损失
 def calc_loss_loader(data_loader, model, device, num_batches = None):
@@ -299,16 +305,27 @@ with torch.no_grad():
     train_loss =calc_loss_loader(
         train_loader, model, device, num_batches=5)
     val_loss = calc_loss_loader(val_loader, model, device, num_batches = 5)
-    test_loss = calc_loss_loader(test_loader, model, device, num_batchese = 5)
+    test_loss = calc_loss_loader(test_loader, model, device, num_batches= 5)
 
 #在有监督数据的基础上微调
 #先微调处理垃圾消息分类
 from ch02 import *
+def evaluate_model(model ,train_loader , val_loader, device, eval_iter):
+    model.eval()
+    with torch.no_grad():
+        train_loss = calc_loss_loader(
+            train_loader, model , device, num_batches= eval_iter
+        )
+        val_loss = calc_loss_loader(
+            val_loader, model ,device, num_batches= eval_iter 
+        )
+        model.train()
+        return train_loss, val_loss
 def train_classifier_simple(
         model, train_loader, val_loader, optimizer, device,
         num_epochs, eval_freq, eval_iter):
     train_losses, val_losses, train_accs, val_accs= [], [] , [], []
-    exaxmples_seen, global_step= 0, -1
+    examples_seen, global_step= 0, -1
 
     for epoch in  range(num_epochs):
         model.train()
@@ -334,18 +351,7 @@ def train_classifier_simple(
         val_loader, model,device, num_batches=eval_iter)
         train_accs.append(train_accuracy)
         val_accs.append(val_accuracy)
-    return train_loss, val_losses, train_accs, val_accs, examples_seen
-def evaluate_model(model ,train_loader , val_loader, device, eval_iter):
-    model.eval()
-    with torch.no_grad():
-        train_loss = calc_loss_loader(
-            train_loader, model , device, num_batches= eval_iter
-        )
-        val_loss = calc_loss_loader(
-            val_loader, model ,device, num_batches= eval_iter 
-        )
-        model.train()
-        return train_loss, val_loss
+    return train_losses, val_losses, train_accs, val_accs, examples_seen
 import time
 start_time = time.time()
 torch.manual_seed(123)
@@ -360,9 +366,66 @@ train_classifier_simple(
 end_time = time.time()
 execution_time_minutes = (end_time - start_time) /60
 #可视化
-import matplotlib.puplot as plt
+import matplotlib.pyplot as plt
 def plot_values(
-        epochs_seen, examples_seen, train_values, val_values. 
-        label = "loss" ) :
-    fig, ax1 = plt.subplts(figsize = (5,3))
+        epochs_seen, examples_seen, train_values, val_values,
+        label = "loss" ):
+    fig, ax1 = plt.subplots(figsize = (5,3))
+    ax1.plot(epochs_seen, train_values, label = f"Training{label}" )
+    ax1.plot(
+        epochs_seen, val_values, linestyle = "-.",
+        label = f"Validation{label}"
+    )
+    ax1.set_xlabel("Epochs")
+    ax1.set_ylabel(label.capitalize())
+    ax1.legend()
 
+    ax2 = ax1.twiny()
+    ax2.plot(examples_seen, train_values, alpha = 0)
+    ax2.set_xlabel("Examples seen")
+    fig.tight_layout()
+    plt.savefig(f"{label}-plot.pdf")
+    plt.show()
+epochs_tensor = torch.linspace(0, num_epochs, len(train_losses))
+example_seen_tensor = torch.linspace(0, examples_seen, len(train_losses))
+plot_values(epochs_tensor, examples_seen, train_losses, val_losses)
+#绘制分类准确率图表
+epochs_tensor = torch.linspace(0, num_epochs, len(train_accs))
+examples_seen_tensor = torch.linspace(0, examples_seen, len(train_accs))
+
+plot_values(
+    epochs_tensor, example_seen_tensor, train_accs, val_accs,
+    label="accuracy" 
+)
+train_accuracy = calc_accuracy_loader(train_loader, model, device)
+val_accuracy= calc_accuracy_loader(val_loader, model, device)
+test_accuracy = calc_accuracy_loader(test_loader, model, device)
+#6.5垃圾消息分类器
+def classify_review(
+    text, model, tokenizer, device, max_length = None,
+    pad_token_id = 50256):
+    model.eval()
+    input_ids = tokenizer.encode(text)
+    supported_context_length = model.pos_emb.weight.shape[0]
+    input_ids = input_ids[:min(
+        max_length, supported_context_length)]
+    input_ids += [pad_token_id] * (max_length - len(input_ids))
+    input_tensor = torch.tensor(
+            input_ids, device =device
+        ).unsqueeze(0)
+    with torch.no_grad():
+        logits = model(input_tensor)[:, -1, :]
+    predicted_label = torch.argmax(logits, dim = -1).item()
+    return "spam" if predicted_label == 1 else "not spam"
+
+text_1 = (
+    "You are a winner you have been specially"
+    " selected to recieve $100 cash or a $2000 reward."
+)
+print(classify_review(
+    text_1, model, tokenizer, device, max_length = train_dataset.max_length 
+))
+#保存模型
+torch.save(model.state_dict(),"review_classifier.pth")
+model_state_dict = torch.load("review_classifier.pth", map_location=device)
+model.load_state_dict(model_state_dict)

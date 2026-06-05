@@ -1,19 +1,22 @@
 import os
+import re
 import urllib.request
 import torch
+import tiktoken
+from torch.utils.data import Dataset, DataLoader
+from importlib.metadata import version
+# ===================== 1. 下载数据集 =====================
 if not os.path.exists("the-verdict.txt"):
-    url = ("https:/raw.githubusercontent.com/rasbt/LLMs-from-scratch/refs/heads/main/ch02/01_main-chapter-code/the-verdict.txt")
+    url = ("https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/refs/heads/main/ch02/01_main-chapter-code/the-verdict.txt")
     file_path = "the-verdict.txt"
     urllib.request.urlretrieve(url, file_path)
 
 with open("the-verdict.txt" , "r", encoding = "UTF-8") as f:
     raw_text = f.read()
-raw_text#指令会显示verdict原文
+#raw_text 指令会显示verdict原文
 #检验字数
 len(raw_text)
-#随便检验一下
-print(raw_text[:99])
-import re
+#随便检验一下，预览print(raw_text[:99])
 text = "hello , worlds. This is a test."
 result = re.split(r'(\s)' , text)
 print(result)
@@ -31,6 +34,9 @@ len(preprocessed)
 #先排序
 all_words = sorted(set(preprocessed))
 vocab_size = len(all_words)
+all_tokens = sorted(list(set(preprocessed)))
+all_tokens.extend(["<|endoftext|>", "<|unk|>"])
+vocab = {token: i for i, token in enumerate(all_tokens)}
 
 #构建实际词汇表(类似于字典排序)
 vocab = {token :integer for integer,token in enumerate(all_words)}
@@ -58,45 +64,20 @@ class SimpletokenizerV2:
         text = re.sub(r'\s+([,.?!"()\'])', r'\1', text)
         return text
 #编码示例：
-tokenizer = SimpletokenizerV2(vocab)
-text = """"It's the last he painted, you know,"
-            Mrs. Gisburn said with pardonable pride."""
-ids = tokenizer.encode(text)
-print(ids)
-#解码
-tokenizer.decode(ids)
-#引入特殊上下文token
-text = "hello , do you like tea ?"
-tokenizer.encode(text)
-all_tokens  = sorted(list(set(preprocessed)))
-all_tokens.extend(["<|endoftext|>","<|unk|>"])#添加token
-#BPE byte pair encoding
-import tiktoken
-vocab = {token:integer for integer,token in enumerate(all_tokens)}
-print(len(vocab.items()))
-#快速验证：
-for i , item in enumerate(list(vocab.items())[-5:]):
-    print(item)
+custom_tokenizer = SimpletokenizerV2(vocab)
 
-import tiktoken
-tokenizer = tiktoken.get_encoding("gpt2")  # 这是 GPT 专用分词器
-tokenizer = SimpletokenizerV2(vocab)
-print(tokenizer.encode(text))
-print(tokenizer.decode(text))
-#实现BPE
-from importlib.metadata import version
-import tiktoken
-print(version("tiktoken"))
-tokenizer = tiktoken.get_encoding("gpt2")
-text = (
-    "Hello , do you like tea?<|endoftext|> In the sunlit terraces of some unknownPlace."
-)
-integers = tokenizer.encode(text, allowed_special={"<|endoftext|>"})
-print(integers)
+# ===================== 4. GPT2 官方 BPE 分词器 =====================
+print("tiktoken 版本:", version("tiktoken"))
+gpt2_tokenizer = tiktoken.get_encoding("gpt2")  # 固定用这个做后续训练
+
+# 测试带特殊token的编码
+test_text = "Hello , do you like tea?<|endoftext|> In the sunlit terraces."
+integers = gpt2_tokenizer.encode(test_text, allowed_special={"<|endoftext|>"})
+print("GPT2 编码结果:", integers)
 #滑动窗口法数据采样
 with open("the-verdict.txt","r",encoding = "utf-8") as f:
     raw_text = f.read()
-enc_text = tokenizer.encode(raw_text)
+enc_text = gpt2_tokenizer.encode(raw_text)
 print(len(enc_text))
 enc_sample = enc_text[50:]
 context_size = 4
@@ -108,7 +89,7 @@ print(f"y:   {y}")
 for i in range(1, context_size+1):
     context = enc_sample[:i]
     desired = enc_sample[i]
-    print(tokenizer.decode(context), "---->", tokenizer.decode([desired]))
+    print(gpt2_tokenizer.decode(context), "---->", gpt2_tokenizer.decode([desired]))
 #结果：
 # and ----> established    
 # and established ----> himself
@@ -122,8 +103,8 @@ class GPTDatasetV1(Dataset):
     def __init__(self, txt, tokenizer, max_length, stride):
         self.input_ids = []
         self.target_ids = []
-
         token_ids = tokenizer.encode(txt, allowed_special={"<|endoftext|>"})
+        
         for i in range(0, len(token_ids) - max_length, stride):
             input_chunk = token_ids[i : i + max_length]
             target_chunk = token_ids[i+1 : i + max_length + 1]
@@ -135,25 +116,13 @@ class GPTDatasetV1(Dataset):
     
     def __getitem__(self, idx):
         return self.input_ids[idx], self.target_ids[idx]
-class GPTDatasetV1(Dataset):
-    def __init__ (self , txt, tokenizer, max_length, stride):
-        self.input_ids = []
-        self.target_ids = []
-        token_ids = tokenizer.encode(txt , allowed_special={"<|endoftext|>"})
-        for i in range(0 , len(token_ids) - max_length, stride):
-            input_chunk = token_ids[i:i + max_length +1]
-            target_chunk = token_ids[i + 1: i+max_length +1]
-            self.input_ids.append(torch.tensor(input_chunk))
-            self.target_ids.append(torch.tensor(target_chunk))
-    def __len__(self):
-        return len(self.input_ids)
-    def __getitem__(self, idx):
-        return self.input_ids[idx], self.target_ids[idx]
 #用于批量生成收入目标对的dataloader
-def create_dataloader_v1(txt , batch_size= 4 ,
+def create_dataloader_v1(txt , 
+                         tokenizer= None,
+                         batch_size= 4 ,
                          max_length = 256,stride = 128,
                            shuffle = True, drop_last = True, num_workers = 0):
-    tokenizer = tiktoken.get_enoding("gpt2")
+    tokenizer = tiktoken.get_encoding("gpt2")
     dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
     dataloader = DataLoader(
         dataset, 
@@ -171,7 +140,7 @@ print(first_batch)
 #步幅为4 的数据加载器采样
 dataloader = create_dataloader_v1(
     raw_text,
-    tokenizer,
+    gpt2_tokenizer,
     batch_size=8,
     max_length=4,
     stride=4,
@@ -201,7 +170,6 @@ max_length= 4
 
 dataloader = create_dataloader_v1(
     raw_text,
-    tokenizer,
     batch_size=8,
     max_length=max_length,
     stride=max_length,

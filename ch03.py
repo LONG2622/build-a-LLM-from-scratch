@@ -123,15 +123,9 @@ class GELU(nn.Module):
         return 0.5 * x * (1 + torch.tanh(
         torch.sqrt(torch.tensor(2.0 / torch.pi)) * 
         (x + 0.044715 * torch.pow(x, 3))))
-    
 class RELU(nn.Module):
-    def __init__(self):
-        super().__init__()
     def forward(self, x):
-        return 0.5 * x * (1 + torch.tanh(
-            torch.sqrt(torch.tensor(2.0 / torch.pi)) * 
-            (x + 0.044715 * torch.pow(x , 3))
-        ))
+        return torch.max(torch.tensor(0.0), x)
 #可视化绘制图像比较ReLU 和GELU函数
 import matplotlib.pyplot as plt
 gelu , relu = nn.GELU() , nn.ReLU()
@@ -184,6 +178,12 @@ class ExampleDeepNeuralNetwork(nn.Module):
             else:
                 x = layer_output
         return x 
+layer_sizes = [3, 3, 3, 3, 3, 1]
+sample_input = torch.tensor([[1., 0., -1.]])
+torch.manual_seed(123)
+model_without_shortcut = ExampleDeepNeuralNetwork(
+    layer_sizes , use_shortcut = False
+)
 #反向传播过程中计算梯度函数：
 def print_gradients(model , x):
     output = model(x)
@@ -194,13 +194,7 @@ def print_gradients(model , x):
     for name, param in model.named_parameters():
         if 'weight' in name:
             print(f"{name} has gradient mean of {param.grad.abs().mean().item()}")
-    print_gradients(model_without_shortcut, sample_input)
-layer_sizes = [3, 3, 3, 3, 3, 1]
-sample_input = torch.tensor([[1., 0., -1.]])
-torch.manual_seed(123)
-model_without_shortcut = ExampleDeepNeuralNetwork(
-    layer_sizes , use_shortcut = False
-)
+
 print_gradients(model_without_shortcut, sample_input)
 #包含跳跃连接的模型：
 torch.manual_seed(123)
