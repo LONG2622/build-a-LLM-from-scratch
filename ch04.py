@@ -93,7 +93,7 @@ val_data = text_data[split_idx:]
 import torch
 from torch.utils.data import Dataset, DataLoader
 from ch01 import create_dataloader_v1 , GPTDatasetV1
-torch.manual(123)
+torch.manual_seed(123)
 
 #创建相应的数据加载器
 train_loader = create_dataloader_v1(
@@ -241,7 +241,7 @@ train_losses, val_losses, token_seen = train_model_simple(
 
 #6.2训练集和测试集的损失可视化
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MAxNLocator
+from matplotlib.ticker import MaxNLocator
 def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses):
     fig, ax1 = plt.subplots(figsize = (5,3))
     ax1.plot(epochs_seen, train_losses, label = "Training loss")
@@ -251,7 +251,7 @@ def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses):
     ax1.set_xlabel("Epochs")
     ax1.set_ylabel("Loss")
     ax1.legend(loc = "upper right")
-    ax1.xaxis.set_major_locator(MAxNLocator(integer = True))
+    ax1.xaxis.set_major_locator(MaxNLocator(integer = True))
     ax2 = ax1.twiny()
     ax2.plot(tokens_seen,train_losses, alpha = 0 )
     ax2.set_xlabel("Tokens seen")
@@ -351,7 +351,7 @@ def generate(model, idx, max_new_tokens, context_size,
         if temperature > 0.0:
             logits = logits / temperature
             probs = torch.softmax(logits, dim=-1)
-            idx_next = torch.multinomial(probs, num_sample = 1)
+            idx_next = torch.multinomial(probs, num_samples= 1)
         else:
             idx_next = torch.argmax(probs, dim=-1, keepdim=True)
         if idx_next == eos_id:
@@ -412,7 +412,7 @@ model_config = {
 }
 model_name = "gpt2-small (124M)"
 NEW_CONFIG = GPT_CONFIG_124M.copy()
-NEW_CONFIG.updata(model_config[model_name])
+NEW_CONFIG.update(model_config[model_name])
 
 gpt = GPTModel(NEW_CONFIG)
 gpt.eval()
@@ -454,8 +454,8 @@ def load_weights_into_gpt(gpt,params):
         gpt.trf_blocks[b].att.out_proj.bias = assign(
             gpt.trf_blocks[b].att.out_proj.bias,
             params["blocks"][b]["attn"]["c_proj"]["b"])
-        gpt.trf_blocks[b].att.ff.layers[0].weight = assign(
-            gpt.trf_blocks[b].att.ff.layers[0].weight,
+        gpt.trf_blocks[b].ff.layers[0].weight = assign(
+            gpt.trf_blocks[b].ff.layers[0].weight,
             params["blocks"][b]["mlp"]["c_fc"]["w"].T)
         
         gpt.trf_blocks[b].ff.layers[0].bias = assign(
@@ -491,7 +491,7 @@ gpt.to(device)
 torch.manual_seed(123)
 token_ids = generate(
     model = gpt,
-    idx = text_to_token_ids("Every effor moves you", tokenizer).to(device),
+    idx = text_to_token_ids("Every effort moves you", tokenizer).to(device),
     max_new_tokens= 25,
     context_size = NEW_CONFIG["context_length"],
     top_k =50,

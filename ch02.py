@@ -115,10 +115,10 @@ class SelfAttention_V1(nn.Module):
         queries = x @ self.W_query
         keys = x @ self.W_key
         values = x @ self.W_value
-        attn_scores = query_2 @ keys.T
+        attn_scores = queries @ keys.T
         attn_weights =torch.softmax(
             attn_scores / keys.shape[-1]** 0.5, dim = -1)
-        context_vec = attn_weights @values
+        context_vec = attn_weights @ values
         return context_vec
 #
 torch.manual_seed(123)
@@ -138,7 +138,7 @@ class SelfAttention_V2(nn.Module):
         attn_scores = queries @ keys.T
         attn_weights =torch.softmax(
             attn_scores / keys.shape[-1]** 0.5, dim = -1)
-        context_vec = attn_weights @values
+        context_vec = attn_weights @ values
         return context_vec
 
 torch.manual_seed(789)
@@ -149,7 +149,7 @@ print(sa_v2(inputs))
 queries = sa_v2.W_query(inputs)
 keys = sa_v2.W_key(inputs)
 values = sa_v2.W_value(inputs)
-attn_scores = query @ keys.T
+attn_scores = queries @ keys.T
 attn_weights =torch.softmax(attn_scores / keys.shape[-1] ** 0.5, dim = -1)
 attn_weights
 #创建掩码
@@ -214,7 +214,7 @@ ca = CausalAttention(d_in = d_in, d_out = d_out,
                       context_length = context_length, dropout = dropout,
                     )
 ca(batch)
-ca(batch).shape()
+ca(batch).shape
 #实现多头注意力的封装类
 class MultiHeadAttentionWrapper(nn.Module):
     def  __init__ (self, d_in, d_out, context_length,
