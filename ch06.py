@@ -1,7 +1,8 @@
 # 通过微调遵循人类指令 6.5
 # 先为有监督微调准备数据集
-import json
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+import json
 import urllib
 import re
 import time
@@ -193,7 +194,6 @@ for i, entry in tqdm(enumerate(test_data), total=len(test_data)):
 # 保存结果
 with open("instruction-data-with-response.json", "w", encoding="utf-8") as f:
     json.dump(test_data, f, indent=4, ensure_ascii=False)
-    
 # 保存模型
 file_name = f"{re.sub(r'[()]', '', CHOOSE_MODEL)}-sft.pth"
 torch.save(model.state_dict(), file_name)
