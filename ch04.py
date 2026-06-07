@@ -214,16 +214,30 @@ def generate_and_print_sample(model , tokenizer, device, start_context):
     decoded_text = token_ids_to_text (token_ids, tokenizer)
     print(decoded_text.replace("\n"," "))
     model.train()
-
 #便捷函数，用于跟踪模型在训练过程中是否有所改进    
-def generate(model, idx, max_new_tokens, context_size):
+def generate(model, idx, max_new_tokens, context_size, temperature=0.0, top_k=None, eos_id=None):
     for _ in range(max_new_tokens):
         idx_cond = idx[:, -context_size:]
         with torch.no_grad():
             logits = model(idx_cond)
         logits = logits[:, -1, :]
-        probs = torch.softmax(logits, dim=-1)
-        idx_next = torch.argmax(probs, dim=-1, keepdim=True)
+        # Top-k 筛选
+        if top_k is not None:
+            top_logits, _ = torch.topk(logits, top_k)
+            min_val = top_logits[:, -1]
+            logits = torch.where(logits < min_val, torch.tensor(float("-inf")).to(logits.device), logits)
+        # 温度缩放 + 概率计算
+        if temperature > 0.0:
+            logits = logits / temperature
+            probs = torch.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+        else:
+            probs = torch.softmax(logits, dim=-1)
+            idx_next = torch.argmax(probs, dim=-1, keepdim=True)
+
+        # 结束符判断
+        if eos_id is not None and idx_next.item() == eos_id:
+            break
         idx = torch.cat((idx, idx_next), dim=1)
     return idx
 #用Adaw优化器进行十轮训练
@@ -335,31 +349,6 @@ new_logits = torch.where(
 )
 print(new_logits)
 #6.3修改文本生成函数modifying the text function
-def generate(model, idx, max_new_tokens, context_size,
-             temperature = 0.0, top_k = None, eos_id = None):
-    for _ in range(max_new_tokens):
-        idx_cond = idx[:, -context_size:]
-        with torch.no_grad():
-            logits = model(idx_cond)
-        logits = logits[:, -1, :]
-        if top_k is not None:
-            top_logits, _ = torch.topk(logits, top_k)
-            min_val = top_logits[:, -1]
-            logits =torch.where(
-                logits < min_val,
-                torch.tensor(float('-inf')).to(logits.device),
-                logits
-            ) 
-        if temperature > 0.0:
-            logits = logits / temperature
-            probs = torch.softmax(logits, dim=-1)
-            idx_next = torch.multinomial(probs, num_samples= 1)
-        else:
-            idx_next = torch.argmax(probs, dim=-1, keepdim=True)
-        if idx_next == eos_id:
-            break
-        idx = torch.cat((idx, idx_next), dim=1)
-    return idx
 #测试
 torch.manual_seed(123)
 token_ids = generate(
@@ -383,7 +372,8 @@ torch.save({
 "model_and_optimizer.pth"
 )
 #加载训练权重
-"""import urllib.request
+"""
+import urllib.request
 url = (
     "https://raw.githubusercontent.com/rasbt/"
     "LLMs-from-scratch/main/ch05"
