@@ -1,0 +1,42 @@
+[
+  {
+    "instruction": "解释什么是机器学习",
+    "input": "",
+    "output": "机器学习是人工智能的一个分支，它使计算机系统能够从数据中学习并改进其性能，而无需进行明确编程。"
+  },
+  {
+    "instruction": "翻译以下句子",
+    "input": "Hello, world!",
+    "output": "你好，世界！"
+  },
+  {
+    "instruction": "写一首关于春天的诗",
+    "input": "",
+    "output": "春风拂柳绿丝绦，花开满园香气飘。燕子归来筑新巢，细雨绵绵润青苗。"
+  },
+  {
+    "instruction": "解释什么是深度学习",
+    "input": "",
+    "output": "深度学习是机器学习的一个子集，使用多层神经网络来学习数据的层次表示。"
+  },
+  {
+    "instruction": "计算 2 + 2",
+    "input": "",
+    "output": "4"
+  },
+  {
+    "instruction": "什么是GPT?",
+    "input": "",
+    "output": "GPT是Generative Pre-trained Transformer的缩写，是一种基于Transformer架构的大型语言模型。"
+  },
+  {
+    "instruction": "解释什么是云计算",
+    "input": "",
+    "output": "云计算是通过互联网提供计算资源（如服务器、存储、数据库等）的一种服务模式。"
+  },
+  {
+    "instruction": "翻译为英文",
+    "input": "我爱学习",
+    "output": "I love learning."
+  }
+]
